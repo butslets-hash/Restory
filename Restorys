@@ -1,0 +1,692 @@
+--[[
+	REINICIAR FORÇADO - LOCALSCRIPT ÚNICO (Com sistema de morte e liberação)
+	Local: StarterPlayer > StarterPlayerScripts > LocalScript (renomeie para "ReiniciarForcado")
+	Tudo roda no seu cliente: menu, peças 3D, lasers, orbe, pó do personagem e reset real.
+]]
+
+--// Serviços
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local TweenService     = game:GetService("TweenService")
+local SoundService     = game:GetService("SoundService")
+local Lighting         = game:GetService("Lighting")
+local Debris           = game:GetService("Debris")
+local UserInputService = game:GetService("UserInputService")
+
+local jogador = Players.LocalPlayer
+
+local function camera()
+	return workspace.CurrentCamera
+end
+
+--// Configurações
+local CONFIG = {
+	Cores = {
+		Fundo      = Color3.fromRGB(18, 18, 24),
+		Barra      = Color3.fromRGB(32, 32, 44),
+		Borda      = Color3.fromRGB(150, 70, 230),
+		Roxo       = Color3.fromRGB(88, 28, 135),
+		RoxoClaro  = Color3.fromRGB(118, 48, 180),
+		Laser      = Color3.fromRGB(175, 95, 255),
+		LaserPreto = Color3.fromRGB(0, 0, 0),
+		Preto      = Color3.fromRGB(0, 0, 0),
+		Poeira     = Color3.fromRGB(150, 135, 120),
+		Texto      = Color3.fromRGB(240, 240, 245),
+	},
+	Sons = {
+		Clique   = "rbxasset://sounds/button.mp3",
+		Explosao = "rbxasset://sounds/Rocket shot.wav",
+		Impacto  = "rbxasset://sounds/collide.mp3",
+		Voo      = "rbxasset://sounds/swordlunge.mp3",
+		Energia  = "rbxasset://sounds/switch.mp3",
+		Laser    = "rbxasset://sounds/clickfast.wav",
+	},
+	TamanhoMenu = Vector2.new(250, 150),
+	AlturaBarra = 34,
+	Colunas     = 6,
+	Linhas      = 4,
+	Distancia   = 12,   -- distância das peças até a câmera, em studs
+	TempoVoo    = 0.9,
+	TempoPuxada = 1.1,
+}
+
+--// Pasta local para peças, orbe e lasers
+local pastaPecas = Instance.new("Folder")
+pastaPecas.Name = "PecasReiniciar"
+pastaPecas.Parent = workspace
+
+--// Utilidades
+local function tocarSom(id, volume, velocidade)
+	if not id or id == "" then return end
+
+	local som = Instance.new("Sound")
+	som.SoundId = id
+	som.Volume = volume or 1
+	som.PlaybackSpeed = velocidade or 1
+	som.Parent = SoundService
+	som:Play()
+	Debris:AddItem(som, 8)
+end
+
+local function tween(objeto, duracao, propriedades, estilo, direcao)
+	local info = TweenInfo.new(
+		duracao,
+		estilo or Enum.EasingStyle.Quad,
+		direcao or Enum.EasingDirection.Out
+	)
+	local t = TweenService:Create(objeto, info, propriedades)
+	t:Play()
+	return t
+end
+
+--// Interface
+local gui = Instance.new("ScreenGui")
+gui.Name = "MenuReiniciarForcado"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.Parent = jogador:WaitForChild("PlayerGui")
+
+local efeitos = Instance.new("ScreenGui")
+efeitos.Name = "EfeitosReiniciar"
+efeitos.ResetOnSpawn = false
+efeitos.IgnoreGuiInset = true
+efeitos.DisplayOrder = 100
+efeitos.Parent = gui.Parent
+
+-- Menu principal
+local menu = Instance.new("Frame")
+menu.Name = "Menu"
+menu.Size = UDim2.fromOffset(CONFIG.TamanhoMenu.X, CONFIG.TamanhoMenu.Y)
+menu.Position = UDim2.new(0.5, -CONFIG.TamanhoMenu.X / 2, 0.5, -CONFIG.TamanhoMenu.Y / 2)
+menu.BackgroundColor3 = CONFIG.Cores.Fundo
+menu.BorderSizePixel = 0
+menu.ClipsDescendants = true
+menu.Parent = gui
+
+local borda = Instance.new("UIStroke")
+borda.Color = CONFIG.Cores.Borda
+borda.Thickness = 2
+borda.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+borda.Parent = menu
+
+-- Barra de título
+local barra = Instance.new("Frame")
+barra.Name = "Barra"
+barra.Size = UDim2.new(1, 0, 0, CONFIG.AlturaBarra)
+barra.BackgroundColor3 = CONFIG.Cores.Barra
+barra.BorderSizePixel = 0
+barra.Parent = menu
+
+local tituloLabel = Instance.new("TextLabel")
+tituloLabel.Size = UDim2.new(1, -50, 1, 0)
+tituloLabel.Position = UDim2.fromOffset(12, 0)
+tituloLabel.BackgroundTransparency = 1
+tituloLabel.Text = "CONTROLE"
+tituloLabel.TextColor3 = CONFIG.Cores.Texto
+tituloLabel.Font = Enum.Font.GothamBold
+tituloLabel.TextSize = 14
+tituloLabel.TextXAlignment = Enum.TextXAlignment.Left
+tituloLabel.Parent = barra
+
+local botaoMinimizar = Instance.new("TextButton")
+botaoMinimizar.Name = "Minimizar"
+botaoMinimizar.Size = UDim2.fromOffset(26, 22)
+botaoMinimizar.Position = UDim2.new(1, -34, 0.5, -11)
+botaoMinimizar.BackgroundColor3 = Color3.fromRGB(60, 60, 78)
+botaoMinimizar.Text = "-"
+botaoMinimizar.TextColor3 = CONFIG.Cores.Texto
+botaoMinimizar.Font = Enum.Font.GothamBold
+botaoMinimizar.TextSize = 18
+botaoMinimizar.AutoButtonColor = false
+botaoMinimizar.Parent = barra
+
+-- Conteúdo
+local conteudo = Instance.new("Frame")
+conteudo.Name = "Conteudo"
+conteudo.Position = UDim2.fromOffset(0, CONFIG.AlturaBarra)
+conteudo.Size = UDim2.new(1, 0, 1, -CONFIG.AlturaBarra)
+conteudo.BackgroundTransparency = 1
+conteudo.Parent = menu
+
+local dica = Instance.new("TextLabel")
+dica.Size = UDim2.new(1, -24, 0, 18)
+dica.Position = UDim2.fromOffset(12, 10)
+dica.BackgroundTransparency = 1
+dica.Text = "Reiniciador forçado"
+dica.TextColor3 = Color3.fromRGB(160, 160, 175)
+dica.Font = Enum.Font.Gotham
+dica.TextSize = 12
+dica.TextXAlignment = Enum.TextXAlignment.Left
+dica.Parent = conteudo
+
+local botaoReiniciar = Instance.new("TextButton")
+botaoReiniciar.Name = "ReiniciarForcado"
+botaoReiniciar.Size = UDim2.new(1, -24, 0, 48)
+botaoReiniciar.Position = UDim2.fromOffset(12, 36)
+botaoReiniciar.BackgroundColor3 = CONFIG.Cores.Roxo
+botaoReiniciar.Text = "REINICIAR FORÇADO"
+botaoReiniciar.TextColor3 = CONFIG.Cores.Texto
+botaoReiniciar.Font = Enum.Font.GothamBlack
+botaoReiniciar.TextSize = 15
+botaoReiniciar.AutoButtonColor = false
+botaoReiniciar.Parent = conteudo
+
+--// Estado
+local minimizado = false
+local arrastando = false
+local ocupado = false
+local inicioMouse, inicioMenu
+
+--// Efeitos visuais
+local function criarFlash()
+	local flash = Instance.new("Frame")
+	flash.Size = UDim2.fromScale(1, 1)
+	flash.BackgroundColor3 = Color3.new(1, 1, 1)
+	flash.BorderSizePixel = 0
+	flash.Parent = efeitos
+	tween(flash, 0.7, {BackgroundTransparency = 1}, Enum.EasingStyle.Linear)
+	Debris:AddItem(flash, 0.8)
+end
+
+local function tremerCamera(duracao, forca)
+	local cam = camera()
+	local inicio = os.clock()
+
+	RunService:BindToRenderStep("TremorReiniciar", Enum.RenderPriority.Camera.Value + 1, function()
+		local passado = os.clock() - inicio
+		if passado >= duracao then
+			RunService:UnbindFromRenderStep("TremorReiniciar")
+			return
+		end
+
+		local intensidade = forca * (1 - passado / duracao)
+		local deslocamento = Vector3.new(
+			(math.random() - 0.5) * intensidade,
+			(math.random() - 0.5) * intensidade,
+			0
+		)
+		cam.CFrame = cam.CFrame * CFrame.new(deslocamento)
+	end)
+end
+
+local function mundoVirandoPo(duracao)
+	local correcao = Instance.new("ColorCorrectionEffect")
+	correcao.Parent = Lighting
+	tween(correcao, 0.4, {
+		Saturation = -1,
+		TintColor = Color3.fromRGB(200, 180, 160),
+	})
+
+	task.delay(duracao, function()
+		tween(correcao, 1.5, {
+			Saturation = 0,
+			TintColor = Color3.new(1, 1, 1),
+		})
+		Debris:AddItem(correcao, 1.6)
+	end)
+end
+
+local function explosaoPoeira(posicao)
+	local ancora = Instance.new("Part")
+	ancora.Anchored = true
+	ancora.CanCollide = false
+	ancora.CanQuery = false
+	ancora.CanTouch = false
+	ancora.CastShadow = false
+	ancora.Transparency = 1
+	ancora.Size = Vector3.new(1, 1, 1)
+	ancora.CFrame = CFrame.new(posicao)
+	ancora.Parent = workspace
+
+	local fumaca = Instance.new("ParticleEmitter")
+	fumaca.Texture = "rbxasset://textures/particles/smoke_main.dds"
+	fumaca.Color = ColorSequence.new(CONFIG.Cores.Poeira)
+	fumaca.Lifetime = NumberRange.new(2, 4)
+	fumaca.Speed = NumberRange.new(15, 35)
+	fumaca.SpreadAngle = Vector2.new(180, 180)
+	fumaca.Rate = 0
+	fumaca.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 3),
+		NumberSequenceKeypoint.new(1, 14),
+	})
+	fumaca.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.2),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	fumaca.Parent = ancora
+	fumaca:Emit(70)
+
+	Debris:AddItem(ancora, 5)
+end
+
+local function ondaPoeira(posicao)
+	local onda = Instance.new("Part")
+	onda.Shape = Enum.PartType.Ball
+	onda.Anchored = true
+	onda.CanCollide = false
+	onda.CanQuery = false
+	onda.CanTouch = false
+	onda.CastShadow = false
+	onda.Material = Enum.Material.SmoothPlastic
+	onda.Color = CONFIG.Cores.Poeira
+	onda.Transparency = 0.35
+	onda.Size = Vector3.new(4, 4, 4)
+	onda.CFrame = CFrame.new(posicao)
+	onda.Parent = workspace
+
+	tween(onda, 1.3, {
+		Size = Vector3.new(120, 120, 120),
+		Transparency = 1,
+	})
+	Debris:AddItem(onda, 1.5)
+end
+
+local function emitirFaiscas(parte, quantidade)
+	local faisca = Instance.new("ParticleEmitter")
+	faisca.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	faisca.Color = ColorSequence.new(CONFIG.Cores.Laser)
+	faisca.Lifetime = NumberRange.new(0.3, 0.7)
+	faisca.Speed = NumberRange.new(3, 8)
+	faisca.SpreadAngle = Vector2.new(180, 180)
+	faisca.Rate = 0
+	faisca.LightEmission = 1
+	faisca.Size = NumberSequence.new(0.3)
+	faisca.Parent = parte
+	faisca:Emit(quantidade)
+	Debris:AddItem(faisca, 1)
+end
+
+--// Sistema de Liberação e Reset Real
+local function atravessaFronteira(objeto, pecasDoPersonagem)
+	local a, b
+
+	if objeto:IsA("JointInstance") or objeto:IsA("WeldConstraint") then
+		a, b = objeto.Part0, objeto.Part1
+	elseif objeto:IsA("Constraint") then
+		a = objeto.Attachment0 and objeto.Attachment0.Parent
+		b = objeto.Attachment1 and objeto.Attachment1.Parent
+	else
+		return false
+	end
+
+	return (pecasDoPersonagem[a] == true) ~= (pecasDoPersonagem[b] == true)
+end
+
+local function soltarAgarres(personagem)
+	local pecas = {}
+	for _, obj in ipairs(personagem:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			pecas[obj] = true
+		end
+	end
+
+	for _, obj in ipairs(workspace:GetDescendants()) do
+		if atravessaFronteira(obj, pecas) then
+			pcall(function()
+				obj:Destroy()
+			end)
+		end
+	end
+end
+
+local function sumirEmPo(personagem)
+	local partes = {}
+	for _, obj in ipairs(personagem:GetDescendants()) do
+		if obj:IsA("BasePart") then
+			table.insert(partes, obj)
+		end
+	end
+
+	for _, parte in ipairs(partes) do
+		task.delay(math.random() * 0.7, function()
+			if not parte.Parent then return end
+
+			local po = Instance.new("ParticleEmitter")
+			po.Texture = "rbxasset://textures/particles/smoke_main.dds"
+			po.Color = ColorSequence.new(CONFIG.Cores.Poeira)
+			po.Lifetime = NumberRange.new(0.8, 1.8)
+			po.Speed = NumberRange.new(2, 7)
+			po.SpreadAngle = Vector2.new(180, 180)
+			po.Rate = 0
+			po.LightEmission = 0
+			po.Size = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.5),
+				NumberSequenceKeypoint.new(1, 2.5),
+			})
+			po.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0.1),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			po.Parent = parte
+			po:Emit(20)
+			Debris:AddItem(po, 3)
+
+			tween(parte, 1.4, {LocalTransparencyModifier = 1}, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+		end)
+	end
+end
+
+-- Função que realmente mata o personagem, solta agarres e quebra juntas
+local function reiniciarPersonagem(personagem)
+	soltarAgarres(personagem)
+	sumirEmPo(personagem)
+
+	local humanoide = personagem:FindFirstChildOfClass("Humanoid")
+	if humanoide and humanoide.Health > 0 then
+		humanoide.Health = 0
+	end
+
+	pcall(function()
+		personagem:BreakJoints()
+	end)
+end
+
+--// Peças 3D do menu
+local function escalaPixels(distancia)
+	local cam = camera()
+	local alturaMeia = distancia * math.tan(math.rad(cam.FieldOfView) / 2)
+	return (cam.ViewportSize.Y / 2) / alturaMeia
+end
+
+local function telaParaMundo(sx, sy, distancia)
+	local cam = camera()
+	local pxPorStud = escalaPixels(distancia)
+	local meio = cam.ViewportSize / 2
+	local x = (sx - meio.X) / pxPorStud
+	local y = -(sy - meio.Y) / pxPorStud
+
+	return cam.CFrame * CFrame.new(x, y, -distancia) * CFrame.Angles(0, math.pi, 0)
+end
+
+local function criarPecas()
+	local d = CONFIG.Distancia
+	local pxPorStud = escalaPixels(d)
+	local origem = menu.AbsolutePosition
+	local tamanho = menu.AbsoluteSize
+	local largura = tamanho.X / CONFIG.Colunas
+	local altura = tamanho.Y / CONFIG.Linhas
+	local pecas = {}
+
+	for linha = 0, CONFIG.Linhas - 1 do
+		for coluna = 0, CONFIG.Colunas - 1 do
+			local sx = origem.X + coluna * largura + largura / 2
+			local sy = origem.Y + linha * altura + altura / 2
+			local base = telaParaMundo(sx, sy, d)
+
+			local parte = Instance.new("Part")
+			parte.Name = "Peca"
+			parte.Anchored = true
+			parte.CanCollide = false
+			parte.CanQuery = false
+			parte.CanTouch = false
+			parte.CastShadow = false
+			parte.Material = Enum.Material.SmoothPlastic
+			parte.Color = CONFIG.Cores.Fundo
+			parte.Size = Vector3.new(largura / pxPorStud, altura / pxPorStud, 0.2)
+			parte.CFrame = base
+			parte.Parent = pastaPecas
+
+			local superficie = Instance.new("SurfaceGui")
+			superficie.Face = Enum.NormalId.Front
+			superficie.SizingMode = Enum.SurfaceGuiSizingMode.FixedSize
+			superficie.CanvasSize = Vector2.new(math.ceil(largura), math.ceil(altura))
+			superficie.PixelsPerStud = pxPorStud
+			superficie.LightInfluence = 0
+			superficie.AlwaysOnTop = true
+			superficie.Parent = parte
+
+			local janela = Instance.new("Frame")
+			janela.Size = UDim2.fromScale(1, 1)
+			janela.BackgroundTransparency = 1
+			janela.ClipsDescendants = true
+			janela.Parent = superficie
+
+			local copia = menu:Clone()
+			copia.Visible = true
+			copia.Size = UDim2.fromOffset(tamanho.X, tamanho.Y)
+			copia.Position = UDim2.fromOffset(-coluna * largura, -linha * altura)
+			copia.Parent = janela
+
+			table.insert(pecas, {parte = parte, base = base})
+		end
+	end
+
+	return pecas
+end
+
+local function explodirPecas(pecas, centro)
+	for _, p in ipairs(pecas) do
+		local saida = p.base.Position - centro
+		local direcao
+		if saida.Magnitude < 0.1 then
+			direcao = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5)
+		else
+			direcao = saida.Unit
+		end
+
+		local destino = p.base.Position
+			+ direcao * math.random(4, 9)
+			+ Vector3.new(math.random(-2, 2), math.random(-2, 2), math.random(-2, 2))
+		local giro = CFrame.Angles(
+			math.random() * math.pi * 2,
+			math.random() * math.pi * 2,
+			math.random() * math.pi * 2
+		)
+
+		tween(p.parte, CONFIG.TempoVoo, {CFrame = CFrame.new(destino) * giro}, Enum.EasingStyle.Quint)
+	end
+end
+
+local function criarOrb(posicao)
+	local orb = Instance.new("Part")
+	orb.Name = "OrbReiniciar"
+	orb.Shape = Enum.PartType.Ball
+	orb.Anchored = true
+	orb.CanCollide = false
+	orb.CanQuery = false
+	orb.CanTouch = false
+	orb.CastShadow = false
+	orb.Material = Enum.Material.SmoothPlastic
+	orb.Color = CONFIG.Cores.Preto
+	orb.Size = Vector3.new(0.1, 0.1, 0.1)
+	orb.CFrame = CFrame.new(posicao)
+	orb.Parent = pastaPecas
+
+	local luz = Instance.new("PointLight")
+	luz.Color = CONFIG.Cores.Laser
+	luz.Range = 14
+	luz.Brightness = 2
+	luz.Parent = orb
+
+	tween(orb, 0.45, {Size = Vector3.new(3, 3, 3)}, Enum.EasingStyle.Back)
+	return orb
+end
+
+local function criarLaser()
+	local laser = Instance.new("Part")
+	laser.Name = "LaserReiniciar"
+	laser.Anchored = true
+	laser.CanCollide = false
+	laser.CanQuery = false
+	laser.CanTouch = false
+	laser.CastShadow = false
+	laser.Material = Enum.Material.Neon
+	laser.Color = CONFIG.Cores.LaserPreto
+	laser.Size = Vector3.new(0.12, 0.12, 1)
+	laser.Transparency = 1
+	laser.Parent = pastaPecas
+	return laser
+end
+
+local function atualizarLaser(laser, de, para)
+	local distancia = (para - de).Magnitude
+	if distancia < 0.01 then
+		laser.Transparency = 1
+		return
+	end
+
+	laser.Transparency = 0
+	laser.Size = Vector3.new(0.12, 0.12, distancia)
+	laser.CFrame = CFrame.lookAt(de:Lerp(para, 0.5), para)
+end
+
+local function puxarPecas(pecas, orb)
+	local ligacoes = {}
+	local concluidas = 0
+
+	local conexao = RunService.RenderStepped:Connect(function()
+		for i = #ligacoes, 1, -1 do
+			local ligacao = ligacoes[i]
+			if ligacao.laser.Parent and ligacao.peca.Parent then
+				local tremor = Vector3.new(
+					(math.random() - 0.5) * 0.4,
+					(math.random() - 0.5) * 0.4,
+					(math.random() - 0.5) * 0.4
+				)
+				atualizarLaser(ligacao.laser, orb.Position, ligacao.peca.Position + tremor)
+			else
+				table.remove(ligacoes, i)
+			end
+		end
+	end)
+
+	for i, p in ipairs(pecas) do
+		task.delay(i * 0.03 + math.random() * 0.35, function()
+			local laser = criarLaser()
+			table.insert(ligacoes, {laser = laser, peca = p.parte})
+			emitirFaiscas(p.parte, 12)
+			tocarSom(CONFIG.Sons.Laser, 0.3, 1 + math.random() * 0.5)
+
+			local t = tween(
+				p.parte,
+				CONFIG.TempoPuxada,
+				{CFrame = p.base},
+				Enum.EasingStyle.Quint,
+				Enum.EasingDirection.InOut
+			)
+
+			t.Completed:Connect(function()
+				laser:Destroy()
+				emitirFaiscas(p.parte, 10)
+				concluidas = concluidas + 1
+			end)
+		end)
+	end
+
+	repeat task.wait() until concluidas >= #pecas
+	conexao:Disconnect()
+end
+
+--// Sequência principal
+local function sequenciaReiniciar()
+	if ocupado then return end
+	ocupado = true
+	tocarSom(CONFIG.Sons.Clique, 0.8, 0.9)
+
+	local centroMenu = menu.AbsolutePosition + menu.AbsoluteSize / 2
+	local centro = telaParaMundo(centroMenu.X, centroMenu.Y, CONFIG.Distancia).Position
+
+	local pecas = criarPecas()
+	menu.Visible = false
+
+	-- 1) Impacto
+	tocarSom(CONFIG.Sons.Explosao, 1, 1)
+	tocarSom(CONFIG.Sons.Impacto, 0.7, 0.8)
+	criarFlash()
+	tremerCamera(0.9, 1.6)
+	mundoVirandoPo(2.4)
+	explosaoPoeira(centro)
+	ondaPoeira(centro)
+
+	-- 2) Peças voam e o personagem reseta de verdade (solta agarres e mata)
+	tocarSom(CONFIG.Sons.Voo, 0.6, 0.9)
+	explodirPecas(pecas, centro)
+	task.delay(0.3, function()
+		local personagem = jogador.Character
+		if personagem then
+			reiniciarPersonagem(personagem)
+		end
+	end)
+
+	-- 3) Bola preta e lasers puxam as peças de volta
+	task.wait(0.9)
+	local orb = criarOrb(centro)
+	tocarSom(CONFIG.Sons.Energia, 0.8, 1)
+	task.wait(0.4)
+	puxarPecas(pecas, orb)
+
+	-- 4) A bola some e o menu volta inteiro
+	tocarSom(CONFIG.Sons.Energia, 0.5, 1.4)
+	emitirFaiscas(orb, 25)
+	tween(orb, 0.35, {Size = Vector3.new(0.1, 0.1, 0.1)}, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+	task.wait(0.4)
+
+	pastaPecas:ClearAllChildren()
+	menu.Visible = true
+	ocupado = false
+end
+
+--// Minimizar
+local function alternarMinimizar()
+	minimizado = not minimizado
+	botaoMinimizar.Text = minimizado and "+" or "-"
+
+	if not minimizado then
+		conteudo.Visible = true
+	end
+
+	local alturaFinal = minimizado and CONFIG.AlturaBarra or CONFIG.TamanhoMenu.Y
+	tween(menu, 0.4, {
+		Size = UDim2.fromOffset(CONFIG.TamanhoMenu.X, alturaFinal),
+	}, Enum.EasingStyle.Quint)
+
+	task.delay(0.4, function()
+		conteudo.Visible = not minimizado
+	end)
+
+	tocarSom(CONFIG.Sons.Clique, 0.6, minimizado and 0.85 or 1.15)
+end
+
+--// Arrastar (mouse e toque)
+barra.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		arrastando = true
+		inicioMouse = input.Position
+		inicioMenu = menu.Position
+	end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		arrastando = false
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if not arrastando then return end
+
+	if input.UserInputType == Enum.UserInputType.MouseMovement
+		or input.UserInputType == Enum.UserInputType.Touch then
+		local delta = input.Position - inicioMouse
+		menu.Position = UDim2.new(
+			inicioMenu.X.Scale, inicioMenu.X.Offset + delta.X,
+			inicioMenu.Y.Scale, inicioMenu.Y.Offset + delta.Y
+		)
+	end
+end)
+
+--// Botões
+botaoMinimizar.MouseButton1Click:Connect(alternarMinimizar)
+
+botaoReiniciar.MouseEnter:Connect(function()
+	tween(botaoReiniciar, 0.15, {BackgroundColor3 = CONFIG.Cores.RoxoClaro})
+end)
+
+botaoReiniciar.MouseLeave:Connect(function()
+	tween(botaoReiniciar, 0.15, {BackgroundColor3 = CONFIG.Cores.Roxo})
+end)
+
+botaoReiniciar.MouseButton1Click:Connect(sequenciaReiniciar)
+
